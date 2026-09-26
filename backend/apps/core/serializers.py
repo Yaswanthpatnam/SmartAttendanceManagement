@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from apps.core.models import User, SystemSetting
@@ -99,10 +100,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         username_or_id = attrs.get('username')
         
-        # Check if the user entered their institutional ID instead of username
+        # Check if the user entered their institutional ID, username, or email
         if username_or_id:
-            # Perform case-insensitive search on institutional_id field
-            user_candidate = User.objects.filter(institutional_id__iexact=username_or_id.strip()).first()
+            val = username_or_id.strip()
+            # Perform case-insensitive search across institutional_id, username, and email fields
+            user_candidate = User.objects.filter(
+                Q(institutional_id__iexact=val) |
+                Q(username__iexact=val) |
+                Q(email__iexact=val)
+            ).first()
             if user_candidate:
                 # Map to standard username so underlying Django authentication succeeds
                 attrs['username'] = user_candidate.username

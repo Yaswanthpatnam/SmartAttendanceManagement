@@ -109,22 +109,27 @@ export const api = {
 
   // Academic Structure and Roster Management
   academic: {
-    getDepartments: () => apiClient.get('/academic/departments/'),
+    getDepartments: (params) => apiClient.get('/academic/departments/', { params: params || { all: 'true' } }),
     createDepartment: (data) => apiClient.post('/academic/departments/', data),
-    getSections: (departmentId) => apiClient.get('/academic/sections/', { params: { department: departmentId } }),
+    getSections: (paramsOrDeptId) => {
+      const params = typeof paramsOrDeptId === 'object' && paramsOrDeptId !== null
+        ? paramsOrDeptId
+        : (paramsOrDeptId ? { department: paramsOrDeptId, all: 'true' } : { all: 'true' });
+      return apiClient.get('/academic/sections/', { params });
+    },
     createSection: (data) => apiClient.post('/academic/sections/', data),
     getSectionAttendanceSummary: (sectionId, date) => apiClient.get(`/academic/sections/${sectionId}/attendance-summary/`, { params: { date } }),
     getSectionCounsellorReport: (sectionId) => apiClient.get(`/academic/sections/${sectionId}/counsellor-report/`),
     advanceSectionSemester: (sectionId) => apiClient.post(`/academic/sections/${sectionId}/advance-semester/`),
     assignSectionCounsellor: (sectionId, facultyId) => apiClient.post(`/academic/sections/${sectionId}/assign-counsellor/`, { faculty_id: facultyId }),
-    getSubjects: (params) => apiClient.get('/academic/subjects/', { params }),
+    getSubjects: (params) => apiClient.get('/academic/subjects/', { params: params || { all: 'true' } }),
     createSubject: (data) => apiClient.post('/academic/subjects/', data),
-    getAcademicYears: () => apiClient.get('/academic/academic-years/'),
-    getFaculty: (params) => apiClient.get('/academic/faculty/', { params }),
+    getAcademicYears: (params) => apiClient.get('/academic/academic-years/', { params: params || { all: 'true' } }),
+    getFaculty: (params) => apiClient.get('/academic/faculty/', { params: params || { all: 'true' } }),
     createFaculty: (data) => apiClient.post('/academic/faculty/', data),
     getStudents: (params) => apiClient.get('/academic/students/', { params }),
     createStudent: (data) => apiClient.post('/academic/students/', data),
-    getAllocations: (params) => apiClient.get('/academic/allocations/', { params }),
+    getAllocations: (params) => apiClient.get('/academic/allocations/', { params: params || { all: 'true' } }),
     createAllocation: (data) => apiClient.post('/academic/allocations/', data),
     getSessions: (params) => apiClient.get('/academic/sessions/', { params }),
     createSession: (data) => apiClient.post('/academic/sessions/', data),

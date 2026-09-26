@@ -78,11 +78,19 @@ def submit_session_attendance(session_id: int, records: List[Dict[str, Any]], us
     with transaction.atomic():
         created_count = 0
         updated_count = 0
+        # Prefetch existing records for this session in a single index lookup
+        existing_records_dict = {
+            r.student_id: r
+            for r in AttendanceRecord.objects.filter(session=session)
+        }
+
+        records_to_create = []
+        records_to_update = []
 
         # Iterate over submitted student status payloads
         for item in records:
             student_profile_id = item.get('student_id')
-            status = item.get('status', AttendanceRecord.Status.PRESENT)
+            status_val = item.get('status', AttendanceRecord.Status.PRESENT)
 
             # Ignore entries where student does not belong to the target class section
             if student_profile_id not in valid_students_lookup:
@@ -90,24 +98,33 @@ def submit_session_attendance(session_id: int, records: List[Dict[str, Any]], us
 
             target_student = valid_students_lookup[student_profile_id]
 
-            # Upsert attendance record for the student and session combination
-            record, created = AttendanceRecord.objects.update_or_create(
-                session=session,
-                student=target_student,
-                defaults={'status': status}
-            )
-
-            # Track metrics for response reporting
-            if created:
-                created_count += 1
-            else:
+            if student_profile_id in existing_records_dict:
+                existing_record = existing_records_dict[student_profile_id]
+                if existing_record.status != status_val:
+                    existing_record.status = status_val
+                    records_to_update.append(existing_record)
                 updated_count += 1
+            else:
+                records_to_create.append(
+                    AttendanceRecord(
+                        session=session,
+                        student=target_student,
+                        status=status_val
+                    )
+                )
+                created_count += 1
+
+        # Commit creations and modifications using high-speed bulk execution
+        if records_to_create:
+            AttendanceRecord.objects.bulk_create(records_to_create, batch_size=500)
+        if records_to_update:
+            AttendanceRecord.objects.bulk_update(records_to_update, ['status'], batch_size=500)
 
         # Mark session as completed and record authoring metadata
         session.is_attendance_taken = True
         session.attendance_taken_at = timezone.now()
         session.attendance_taken_by = user
-        session.save()
+        session.save(update_fields=['is_attendance_taken', 'attendance_taken_at', 'attendance_taken_by'])
 
     return {
         "session_id": session.id,

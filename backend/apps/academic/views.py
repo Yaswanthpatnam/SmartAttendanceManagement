@@ -91,7 +91,7 @@ class SectionViewSet(viewsets.ModelViewSet):
         # Filter by department if query parameter is provided
         if dept_id:
             qs = qs.filter(department_id=dept_id)
-        return qs
+        return qs.order_by('department__code', 'name')
 
     @action(detail=True, methods=['post'], url_path='advance-semester')
     def advance_semester(self, request, pk=None):
@@ -478,7 +478,7 @@ class SubjectViewSet(viewsets.ModelViewSet):
         if semester:
             qs = qs.filter(semester=semester)
             
-        return qs
+        return qs.order_by('code')
 
 
 class FacultyViewSet(viewsets.ModelViewSet):
@@ -531,7 +531,7 @@ class FacultyViewSet(viewsets.ModelViewSet):
                 Q(user__last_name__icontains=search) |
                 Q(user__email__icontains=search)
             )
-        return qs
+        return qs.order_by('faculty_id')
 
     def create(self, request, *args, **kwargs):
         """Validates and creates an individual faculty member."""
@@ -666,10 +666,10 @@ class FacultyAllocationViewSet(viewsets.ModelViewSet):
         if section_id:
             qs = qs.filter(section_id=section_id)
 
-        return qs
+        return qs.order_by('faculty__faculty_id', 'subject__code')
 
     def perform_create(self, serializer):
-        """Validates that HOD only allocates faculty within their own department."""
+        """Validates that HOD only allocates faculty within their own department and provisions live session."""
         user = self.request.user
         if user.role == User.Role.HOD:
             dept = getattr(user, 'managed_department', None)
@@ -678,7 +678,21 @@ class FacultyAllocationViewSet(viewsets.ModelViewSet):
             faculty = serializer.validated_data.get('faculty')
             if faculty and faculty.department != dept:
                 raise permissions.exceptions.PermissionDenied("You can only allocate faculty members belonging to your department.")
-        serializer.save()
+        alloc = serializer.save()
+
+        # Proactively provision an initial timetable class session for today so the newly
+        # allocated instructor can immediately commence attendance taking in their dashboard.
+        today = timezone.localdate()
+        ClassSession.objects.get_or_create(
+            allocation=alloc,
+            session_date=today,
+            defaults={
+                'start_time': '10:00:00',
+                'end_time': '11:00:00',
+                'topic': f"{alloc.subject.name} - Introductory Lecture",
+                'is_attendance_taken': False,
+            }
+        )
 
 
 class ClassSessionViewSet(viewsets.ModelViewSet):
@@ -720,4 +734,19 @@ class ClassSessionViewSet(viewsets.ModelViewSet):
         if date_param:
             qs = qs.filter(session_date=date_param)
 
-        return qs
+        # Filter by allocation if specified
+        alloc_id = self.request.query_params.get('allocation')
+        if alloc_id:
+            qs = qs.filter(allocation_id=alloc_id)
+
+        return qs.order_by('session_date', 'start_time')
+
+    def perform_create(self, serializer):
+        """Ensures faculty members can only schedule sessions for their own allocated courses."""
+        user = self.request.user
+        if user.role == User.Role.FACULTY and hasattr(user, 'faculty_profile'):
+            alloc = serializer.validated_data.get('allocation')
+            if alloc and alloc.faculty != user.faculty_profile:
+                raise permissions.exceptions.PermissionDenied("You can only create sessions for your assigned allocations.")
+        serializer.save()
+

@@ -27,8 +27,8 @@ export default function LandingPage() {
   // Pre-configured test accounts across all institutional hierarchy tiers
   const demoAccounts = [
     { label: 'Administration', id: 'ADM-001', pass: 'Admin@123', role: 'ADMIN', badge: 'System Admin' },
-    { label: 'Principal', id: 'PR001', pass: 'Principal@123', role: 'PRINCIPAL', badge: 'College Exec' },
-    { label: 'Vice Principal', id: 'VP001', pass: 'VP@123', role: 'VICE_PRINCIPAL', badge: 'Academic VP' },
+    { label: 'Principal', id: 'PR001', pass: 'Admin@123', role: 'PRINCIPAL', badge: 'College Exec' },
+    { label: 'Vice Principal', id: 'VP001', pass: 'Admin@123', role: 'VICE_PRINCIPAL', badge: 'Academic VP' },
     { label: 'CSE HOD', id: 'HOD-CSE-001', pass: 'Hod@123', role: 'HOD', badge: 'Dept Head' },
     { label: 'Faculty (Counsellor)', id: 'FAC-CSE-001', pass: 'Faculty@123', role: 'FACULTY', badge: 'CSE-1 Proctor' },
     { label: 'Faculty (Teaching)', id: 'FAC-CSE-005', pass: 'Faculty@123', role: 'FACULTY', badge: 'Lectures Only' },

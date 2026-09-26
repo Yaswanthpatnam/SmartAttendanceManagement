@@ -50,6 +50,12 @@ export default function FacultyDashboard() {
   const [correctionNewStatus, setCorrectionNewStatus] = useState('PRESENT');
   const [correctionReason, setCorrectionReason] = useState('');
 
+  // Selected schedule date (defaults to dynamic today's date YYYY-MM-DD)
+  const [selectedScheduleDate, setSelectedScheduleDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
+  const [loadingScheduleDate, setLoadingScheduleDate] = useState(false);
+
   // Notification toast state
   const [notification, setNotification] = useState(null);
 
@@ -72,7 +78,7 @@ export default function FacultyDashboard() {
   const loadFacultyData = async () => {
     setLoading(true);
     try {
-      const todayIsoDate = new Date().toISOString().split('T')[0];
+      const todayIsoDate = selectedScheduleDate || new Date().toISOString().split('T')[0];
       
       // Parallel execution of all required faculty data requests
       const [sessionsResponse, allocationsResponse, biometricsResponse, userResponse] = await Promise.all([
@@ -137,6 +143,60 @@ export default function FacultyDashboard() {
       if (!activeCounsellorReport || activeCounsellorReport.section_id !== activeCounsellorSectionId) {
         handleSelectCounsellorSection(activeCounsellorSectionId || counsellorSections[0].id);
       }
+    }
+  };
+
+  /**
+   * Fetches timetable sessions for a selected date.
+   */
+  const handleDateChange = async (newDate) => {
+    setSelectedScheduleDate(newDate);
+    setLoadingScheduleDate(true);
+    try {
+      const resp = await api.academic.getSessions({ date: newDate });
+      setTodayClasses(resp.data.results || resp.data);
+    } catch (err) {
+      showNotice('Failed to load schedule for selected date.', true);
+    } finally {
+      setLoadingScheduleDate(false);
+    }
+  };
+
+  /**
+   * Initiates live attendance marking directly from an allocated course card.
+   */
+  const handleStartSessionForAllocation = async (allocation) => {
+    setLoading(true);
+    try {
+      const targetDate = selectedScheduleDate || new Date().toISOString().split('T')[0];
+      
+      // Check if a session already exists for this allocation on the target date
+      const existingSessionsRes = await api.academic.getSessions({
+        date: targetDate,
+        allocation: allocation.id
+      });
+      const sessions = existingSessionsRes.data.results || existingSessionsRes.data || [];
+      let targetSession = sessions.find(s => !s.is_attendance_taken) || sessions[0];
+
+      // If no session exists yet, automatically create an active session
+      if (!targetSession) {
+        const createRes = await api.academic.createSession({
+          allocation: allocation.id,
+          session_date: targetDate,
+          start_time: '10:00:00',
+          end_time: '11:00:00',
+          topic: `${allocation.subject_code} - Course Lecture Session`
+        });
+        targetSession = createRes.data;
+      }
+
+      // Open the attendance roster marking sheet
+      await handleOpenAttendanceSheet(targetSession);
+      showNotice(`Active attendance marking sheet opened for ${allocation.subject_code} (${allocation.section_name}).`);
+    } catch (err) {
+      showNotice(err.response?.data?.detail || 'Failed to start class session for this subject.', true);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -348,17 +408,62 @@ export default function FacultyDashboard() {
         {/* TAB 1: TODAY'S SCHEDULE & CLASSES */}
         {activeTab === 'schedule' && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Today's Class Schedule</h2>
-              <p className="text-sm text-slate-500">Scheduled lectures assigned to you for today</p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
+                  {selectedScheduleDate === new Date().toISOString().split('T')[0] ? "Today's Class Schedule" : "Class Schedule"}
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Lectures scheduled for <span className="font-semibold text-slate-800">
+                    {new Date(selectedScheduleDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </p>
+              </div>
+
+              {/* Date Filter Controls */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDateChange(new Date().toISOString().split('T')[0])}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    selectedScheduleDate === new Date().toISOString().split('T')[0]
+                      ? 'bg-[#376A7B] text-white shadow-xs'
+                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Today
+                </button>
+                <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={selectedScheduleDate}
+                    onChange={(e) => e.target.value && handleDateChange(e.target.value)}
+                    className="text-xs font-semibold text-slate-700 bg-transparent outline-none cursor-pointer"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {todayClasses.length === 0 ? (
+              {loadingScheduleDate ? (
+                <div className="col-span-full py-12 text-center space-y-3">
+                  <div className="w-8 h-8 border-3 border-[#376A7B] border-t-transparent rounded-full animate-spin mx-auto" />
+                  <p className="text-sm font-semibold text-slate-600">Loading scheduled classes...</p>
+                </div>
+              ) : todayClasses.length === 0 ? (
                 <div className="col-span-full bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
                   <Calendar className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="font-semibold text-slate-700">No lectures scheduled for today.</p>
-                  <p className="text-xs text-slate-400 mt-1">Check your assigned subjects tab to view active semester courses.</p>
+                  <p className="font-semibold text-slate-700">No lectures scheduled for this date.</p>
+                  <p className="text-xs text-slate-400 mt-1 mb-4">You can conduct an ad-hoc class or select any of your assigned subjects below to mark attendance.</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('allocations')}
+                    className="px-4 py-2 bg-[#376A7B] hover:bg-[#2F4858] text-white rounded-lg text-xs font-bold inline-flex items-center gap-2 cursor-pointer shadow-xs"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>View My Assigned Subjects</span>
+                  </button>
                 </div>
               ) : (
                 todayClasses.map(session => (
@@ -554,20 +659,47 @@ export default function FacultyDashboard() {
           <div className="space-y-6">
             <div>
               <h2 className="text-2xl font-bold text-slate-900 tracking-tight">My Teaching Allocations</h2>
-              <p className="text-sm text-slate-500">Subjects and cohorts assigned to you by the Head of Department</p>
+              <p className="text-sm text-slate-500">Curriculum subjects and sections assigned to you by the Head of Department</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {myAllocations.map(allocation => (
-                <div key={allocation.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-                  <span className="font-mono font-bold text-sm text-[#376A7B]">{allocation.subject_code}</span>
-                  <h3 className="font-bold text-base text-slate-900 mt-1">{allocation.subject_name}</h3>
-                  <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-600 flex justify-between">
-                    <span>Target: <strong>{allocation.section_name}</strong></span>
-                    <span>Semester {allocation.semester}</span>
-                  </div>
+              {myAllocations.length === 0 ? (
+                <div className="col-span-full bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
+                  <BookOpen className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                  <p className="font-semibold text-slate-700">No active teaching allocations found.</p>
+                  <p className="text-xs text-slate-400 mt-1">Please coordinate with your Head of Department (HOD) to configure subject allocations.</p>
                 </div>
-              ))}
+              ) : (
+                myAllocations.map(allocation => (
+                  <div key={allocation.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-all">
+                    <div>
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="font-mono font-bold text-sm text-[#376A7B]">{allocation.subject_code}</span>
+                        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-[#AAFFC7]/50 text-[#2F4858] border border-[#78DABE]">
+                          Active Allocation
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-base text-slate-900">{allocation.subject_name}</h3>
+                      <div className="mt-3 space-y-1 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                        <p><strong>Class Section:</strong> {allocation.section_name}</p>
+                        <p><strong>Semester:</strong> Semester {allocation.semester}</p>
+                        <p><strong>Academic Year:</strong> {allocation.academic_year_label || 'Current Academic Year'}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 pt-3 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => handleStartSessionForAllocation(allocation)}
+                        className="w-full py-2 px-4 bg-[#376A7B] hover:bg-[#2F4858] text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <UserCheck className="w-4 h-4" />
+                        <span>Take Attendance for Today</span>
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
